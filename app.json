@@ -1,0 +1,101 @@
+{
+  "expo": {
+    "name": "Un-locka",
+    "slug": "un-locka",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#6C63FF"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.janstech.unlocka",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Un-locka needs camera access to take photos and record videos for View Once, Status, and Creators.",
+        "NSMicrophoneUsageDescription": "Un-locka needs microphone access to record voice notes and audio for videos.",
+        "NSPhotoLibraryUsageDescription": "Un-locka needs gallery access to select photos and videos from your device.",
+        "NSPhotoLibraryAddUsageDescription": "Un-locka needs permission to save photos to your device.",
+        "NSContactsUsageDescription": "Un-locka needs contacts access to find friends who are also using the app.",
+        "NSLocationWhenInUseUsageDescription": "Un-locka needs location access to share your location in chats.",
+        "NSLocationAlwaysUsageDescription": "Un-locka needs location access to share your location.",
+        "UIBackgroundModes": ["audio"]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#6C63FF"
+      },
+      "package": "com.janstech.unlocka",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_CONTACTS",
+        "WRITE_CONTACTS",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "VIBRATE",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "MODIFY_AUDIO_SETTINGS",
+        "FOREGROUND_SERVICE",
+        "RECEIVE_BOOT_COMPLETED"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Un-locka to access your camera."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Un-locka to access your photos.",
+          "savePhotosPermission": "Allow Un-locka to save photos."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow Un-locka to access your contacts."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Un-locka to use your location.",
+          "locationWhenInUsePermission": "Allow Un-locka to use your location."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#6C63FF"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow Un-locka to access your microphone."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Un-locka accesses your photos to share in chats.",
+          "cameraPermission": "Un-locka accesses your camera to take photos."
+        }
+      ]
+    ]
+  }
+}
