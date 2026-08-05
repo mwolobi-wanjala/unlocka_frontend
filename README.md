@@ -353,20 +353,4 @@ Built with ❤️ in Kenya 🇰🇪
 
 © 2026 Jans Tech. All Rights Reserved.
 
-</div>
-EOF
 
-echo "✅ Complete README created for frontend"
-
-```
-
-## QUICK PUSH TO GITHUB
-```bash
-# Push backend with README
-cd ~/unlocka
-git add README.md
-git commit -m "Add comprehensive README documentation"
-git push origin main
-
-# Push frontend with README
-cd
