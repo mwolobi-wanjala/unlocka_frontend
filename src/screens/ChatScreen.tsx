@@ -14,6 +14,7 @@ import * as Contacts from 'expo-contacts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, SPACING, SHADOWS } from '../constants/theme';
 import { MOCK_MESSAGES } from '../services/localMockData';
+import { chatSocket } from '../services/chat/socketService';
 import MediaSendModal from "../components/MediaSendModal";
 import { PAID_MEDIA } from "../types/chat";
 import CallOptionsModal from "../components/chat/CallOptionsModal";
@@ -32,8 +33,10 @@ const MESSAGE_FORMATS = ['**Bold**', '*Italic*', '~Strike~', '`Code`'];
 
 const ChatScreen: React.FC<ChatScreenProps> = ({ chat, onBack, userId }) => {
   const { showToast } = useToast();
-  const [messages, setMessages] = useState<any[]>(MOCK_MESSAGES);
+  const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
+  const [isConnected, setIsConnected] = useState(false);
+  const [typingName, setTypingName] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<any>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -64,15 +67,78 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, onBack, userId }) => {
   const flatListRef = useRef<FlatList>(null);
   const pressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isLongPressRef = useRef(false);
+  const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const MAX_RECORDING = 1800;
   const WARN_5_MIN = 1500;
   const WARN_1_MIN = 1740;
 
   useEffect(() => {
-    setTimeout(() => flatListRef.current?.scrollToEnd(), 100);
+    let mounted = true;
+    const loadMessages = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(`@messages_${chat.id}`);
+        const initialMessages = stored ? JSON.parse(stored) : MOCK_MESSAGES.filter(message => message.chatId === chat.id);
+        if (mounted) setMessages(initialMessages.length ? initialMessages : MOCK_MESSAGES);
+      } catch {
+        if (mounted) setMessages(MOCK_MESSAGES);
+      }
+    };
+
+    const handleNewMessage = (message: any) => {
+      if (message.chatId !== chat.id) return;
+      setMessages(prev => prev.some(item => item.id === message.id) ? prev : [...prev, message]);
+      if (message.senderId !== userId) chatSocket.markAsRead(chat.id, [message.id]);
+      setTimeout(() => flatListRef.current?.scrollToEnd(), 100);
+    };
+    const handleMessageStatus = (data: { messageId: string; status: string }) => {
+      setMessages(prev => prev.map(message => message.id === data.messageId ? { ...message, status: data.status } : message));
+    };
+    const handleMessageUpdated = (message: any) => {
+      if (message.chatId === chat.id) setMessages(prev => prev.map(item => item.id === message.id ? message : item));
+    };
+    const handleMessageDeleted = (data: { chatId: string; messageId: string }) => {
+      if (data.chatId === chat.id) setMessages(prev => prev.filter(message => message.id !== data.messageId));
+    };
+    const handleTyping = (data: { chatId: string; userId: number; name: string }) => {
+      if (data.chatId !== chat.id || data.userId === userId) return;
+      setTypingName(data.name);
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = setTimeout(() => setTypingName(null), 2500);
+    };
+    const handleStopTyping = (data: { chatId: string; userId: number }) => {
+      if (data.chatId === chat.id && data.userId !== userId) setTypingName(null);
+    };
+    const handleConnectionStatus = (status: string) => setIsConnected(status === 'online');
+
+    loadMessages();
     loadChatSettings();
-  }, []);
+    chatSocket.connect(String(userId));
+    setIsConnected(chatSocket.isConnected());
+    chatSocket.on('new_message', handleNewMessage);
+    chatSocket.on('message_status', handleMessageStatus);
+    chatSocket.on('message_updated', handleMessageUpdated);
+    chatSocket.on('message_deleted', handleMessageDeleted);
+    chatSocket.on('typing', handleTyping);
+    chatSocket.on('stop_typing', handleStopTyping);
+    chatSocket.on('status', handleConnectionStatus);
+
+    return () => {
+      mounted = false;
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      chatSocket.off('new_message', handleNewMessage);
+      chatSocket.off('message_status', handleMessageStatus);
+      chatSocket.off('message_updated', handleMessageUpdated);
+      chatSocket.off('message_deleted', handleMessageDeleted);
+      chatSocket.off('typing', handleTyping);
+      chatSocket.off('stop_typing', handleStopTyping);
+      chatSocket.off('status', handleConnectionStatus);
+    };
+  }, [chat.id, userId]);
+
+  useEffect(() => {
+    if (messages.length) AsyncStorage.setItem(`@messages_${chat.id}`, JSON.stringify(messages)).catch(() => undefined);
+  }, [chat.id, messages]);
 
   const loadChatSettings = async () => {
     const saved = await AsyncStorage.getItem(`@chat_${chat.id}`);
@@ -87,6 +153,12 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, onBack, userId }) => {
     const saved = await AsyncStorage.getItem(`@chat_${chat.id}`);
     const current = saved ? JSON.parse(saved) : {};
     await AsyncStorage.setItem(`@chat_${chat.id}`, JSON.stringify({ ...current, ...settings }));
+  };
+
+  const publishMessage = (message: any) => {
+    setMessages(prev => [...prev, message]);
+    chatSocket.sendMessage(message);
+    setTimeout(() => flatListRef.current?.scrollToEnd(), 100);
   };
 
   // ============================================
@@ -118,7 +190,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, onBack, userId }) => {
     if (recordingTimer.current) { clearInterval(recordingTimer.current); recordingTimer.current = null; }
     if (isRecording && recordingTime >= 1) {
       const voiceMsg = { id: `msg_${Date.now()}`, chatId: chat.id, senderId: userId, senderName: 'You', type: 'audio', content: '🎤 Voice note', duration: recordingTime, status: 'sent', timestamp: new Date().toISOString() };
-      setMessages(prev => [...prev, voiceMsg]);
+      publishMessage(voiceMsg);
     }
     setIsRecording(false); setRecordingTime(0);
     Vibration.vibrate(30);
@@ -157,7 +229,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, onBack, userId }) => {
         const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
         if (!result.canceled && result.assets?.[0]) {
           const doc = result.assets[0];
-          setMessages(prev => [...prev, { id: `msg_${Date.now()}`, chatId: chat.id, senderId: userId, senderName: 'You', type: 'document', content: `📄 ${doc.name}`, fileName: doc.name, fileSize: doc.size, status: 'sent', timestamp: new Date().toISOString() }]);
+          publishMessage({ id: `msg_${Date.now()}`, chatId: chat.id, senderId: userId, senderName: 'You', type: 'document', content: `📄 ${doc.name}`, fileName: doc.name, fileSize: doc.size, status: 'sent', timestamp: new Date().toISOString() });
           showToast('📄 Document sent');
         }
       } catch { showToast('Document failed'); } break;
@@ -165,7 +237,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, onBack, userId }) => {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') { Alert.alert('Permission', 'Location access needed'); return; }
         const location = await Location.getCurrentPositionAsync({});
-        setMessages(prev => [...prev, { id: `msg_${Date.now()}`, chatId: chat.id, senderId: userId, senderName: 'You', type: 'location', content: '📍 Location', location: { latitude: location.coords.latitude, longitude: location.coords.longitude }, status: 'sent', timestamp: new Date().toISOString() }]);
+        publishMessage({ id: `msg_${Date.now()}`, chatId: chat.id, senderId: userId, senderName: 'You', type: 'location', content: '📍 Location', location: { latitude: location.coords.latitude, longitude: location.coords.longitude }, status: 'sent', timestamp: new Date().toISOString() });
         showToast('📍 Location shared');
       } catch { showToast('Location failed'); } break;
       case 'contact': try {
@@ -174,12 +246,12 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, onBack, userId }) => {
         const { data } = await Contacts.getContactsAsync({ fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers] });
         if (data.length > 0) {
           const c = data[0];
-          setMessages(prev => [...prev, { id: `msg_${Date.now()}`, chatId: chat.id, senderId: userId, senderName: 'You', type: 'contact', content: '👤 Contact', contact: { name: c.name, phone: c.phoneNumbers?.[0]?.number }, status: 'sent', timestamp: new Date().toISOString() }]);
+          publishMessage({ id: `msg_${Date.now()}`, chatId: chat.id, senderId: userId, senderName: 'You', type: 'contact', content: '👤 Contact', contact: { name: c.name, phone: c.phoneNumbers?.[0]?.number }, status: 'sent', timestamp: new Date().toISOString() });
           showToast('👤 Contact shared');
         }
       } catch { showToast('Contact failed'); } break;
       case 'poll':
-        setMessages(prev => [...prev, { id: `msg_${Date.now()}`, chatId: chat.id, senderId: userId, senderName: 'You', type: 'poll', content: '📊 Poll', poll: { question: 'What do you think?', options: [{ id: '1', text: '👍 Great!', votes: 0 }, { id: '2', text: '👎 Not great', votes: 0 }], totalVotes: 0 }, status: 'sent', timestamp: new Date().toISOString() }]);
+        publishMessage({ id: `msg_${Date.now()}`, chatId: chat.id, senderId: userId, senderName: 'You', type: 'poll', content: '📊 Poll', poll: { question: 'What do you think?', options: [{ id: '1', text: '👍 Great!', votes: 0 }, { id: '2', text: '👎 Not great', votes: 0 }], totalVotes: 0 }, status: 'sent', timestamp: new Date().toISOString() });
         showToast('📊 Poll created');
         break;
       case 'schedule':
@@ -200,13 +272,13 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, onBack, userId }) => {
       paidMedia: data.isPaid ? { isPaid: true, amount: data.amount, status: "locked", senderCut: data.amount * 0.85, platformCut: data.amount * 0.15 } : null,
       caption: data.caption, status: "sent", timestamp: new Date().toISOString(),
     };
-    setMessages(prev => [...prev, mediaMsg]);
+    publishMessage(mediaMsg);
     showToast(data.isPaid ? `💰 Paid media sent! Earn KSH ${(data.amount * 0.85).toFixed(0)}` : "📤 Media sent!");
     setShowMediaSendModal(false);
     setMediaToSend(null);
     setTimeout(() => flatListRef.current?.scrollToEnd(), 100);
   };
-    setMessages(prev => [...prev, { id: `msg_${Date.now()}`, chatId: chat.id, senderId: userId, senderName: 'You', type, content: type === 'image' ? '📷 Photo' : '🎥 Video', mediaUrl: uri, thumbnailUrl: uri, status: 'sent', timestamp: new Date().toISOString() }]);
+    publishMessage({ id: `msg_${Date.now()}`, chatId: chat.id, senderId: userId, senderName: 'You', type, content: type === 'image' ? '📷 Photo' : '🎥 Video', mediaUrl: uri, thumbnailUrl: uri, status: 'sent', timestamp: new Date().toISOString() });
     showToast(`${type === 'image' ? '📷 Photo' : '🎥 Video'} sent`);
   };
 
@@ -319,12 +391,26 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, onBack, userId }) => {
     const newMsg = {
       id: `msg_${Date.now()}`, chatId: chat.id, senderId: userId,
       senderName: 'You', type: 'text', content: inputText.trim(),
-      status: 'sent', timestamp: new Date().toISOString(),
+      status: 'sending', timestamp: new Date().toISOString(),
       ...(replyingTo && { replyTo: { id: replyingTo.id, senderName: replyingTo.senderName, content: replyingTo.content, type: replyingTo.type } }),
     };
     setMessages(prev => [...prev, newMsg]);
     setInputText(''); setReplyingTo(null);
+    chatSocket.sendMessage(newMsg);
+    chatSocket.stopTyping(chat.id);
+    if (!chatSocket.isConnected()) {
+      setMessages(prev => prev.map(message => message.id === newMsg.id ? { ...message, status: 'sent' } : message));
+    }
     setTimeout(() => flatListRef.current?.scrollToEnd(), 100);
+  };
+
+  const handleInputChange = (value: string) => {
+    setInputText(value);
+    if (value.trim()) {
+      chatSocket.sendTyping(chat.id);
+    } else {
+      chatSocket.stopTyping(chat.id);
+    }
   };
 
   const formatTime = (ts: string) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -412,7 +498,9 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, onBack, userId }) => {
         <TouchableOpacity style={styles.headerInfo} onPress={() => setShowChatInfo(true)}>
           <View style={styles.headerAvatar}><Text style={styles.headerAvatarText}>{chat.name?.charAt(0)}</Text></View>
           <View><Text style={styles.headerName}>{chat.name}</Text>
-            <Text style={styles.headerStatus}>{disappearingTime > 0 ? '⏳ Disappearing' : 'online'}</Text>
+            <Text style={styles.headerStatus}>
+              {typingName ? `${typingName} is typing...` : disappearingTime > 0 ? '⏳ Disappearing' : isConnected ? 'online' : 'offline'}
+            </Text>
           </View>
         </TouchableOpacity>
         <View style={styles.headerActions}>
@@ -483,7 +571,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ chat, onBack, userId }) => {
       {/* Input */}
       <View style={styles.inputArea}>
         <TouchableOpacity style={styles.attachBtn} onPress={() => setShowAttachmentMenu(true)}><Text style={styles.attachIcon}>📎</Text></TouchableOpacity>
-        <TextInput style={styles.input} value={inputText} onChangeText={setInputText} placeholder="Message" placeholderTextColor="#999" multiline maxLength={5000} />
+        <TextInput style={styles.input} value={inputText} onChangeText={handleInputChange} placeholder="Message" placeholderTextColor="#999" multiline maxLength={5000} />
         {inputText.trim() ? (
           <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}><Text style={styles.sendIcon}>📤</Text></TouchableOpacity>
         ) : (

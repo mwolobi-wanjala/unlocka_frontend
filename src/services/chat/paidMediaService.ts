@@ -87,7 +87,6 @@ export const sendPaidMedia = async (
     const response = await fetch(`${API_URL}/media/send`, {
       method: 'POST',
       body: formData,
-      headers: { 'Content-Type': 'multipart/form-data' },
     });
     return await response.json();
   } catch {

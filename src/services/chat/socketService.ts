@@ -1,15 +1,19 @@
 // services/chat/socketService.ts - WebSocket chat service
 import { io, Socket } from 'socket.io-client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ChatMessage, ChatConversation } from '../../types/chat';
 
-const SOCKET_URL = 'http://localhost:8000';
-const API_URL = 'http://localhost:8000/api/v1';
+const SOCKET_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = `${SOCKET_URL}/api/v1`;
 
 class ChatSocketService {
   private socket: Socket | null = null;
   private listeners: Map<string, Function[]> = new Map();
 
   connect(token: string) {
+    if (this.socket?.connected) return;
+
+    this.disconnect();
     this.socket = io(SOCKET_URL, {
       auth: { token },
       transports: ['websocket'],
@@ -20,11 +24,12 @@ class ChatSocketService {
 
     this.socket.on('connect', () => {
       console.log('🔗 Chat connected');
-      this.emit('status', 'online');
+      this.notify('status', 'online');
     });
 
     this.socket.on('disconnect', () => {
       console.log('🔌 Chat disconnected');
+      this.notify('status', 'offline');
     });
 
     // Message events
@@ -58,6 +63,18 @@ class ChatSocketService {
     this.socket.on('conversation_updated', (conversation: ChatConversation) => {
       this.notify('conversation_updated', conversation);
     });
+
+    this.socket.on('message_updated', (message: ChatMessage) => {
+      this.notify('message_updated', message);
+    });
+
+    this.socket.on('message_deleted', (data: { chatId: string; messageId: string; forEveryone: boolean }) => {
+      this.notify('message_deleted', data);
+    });
+
+    this.socket.on('user_typing', (data: { chatId: string; userId: number; name: string }) => {
+      this.notify('typing', data);
+    });
   }
 
   disconnect() {
@@ -70,6 +87,10 @@ class ChatSocketService {
   // Send message
   sendMessage(message: Partial<ChatMessage>) {
     this.socket?.emit('send_message', message);
+  }
+
+  isConnected() {
+    return this.socket?.connected === true;
   }
 
   // Typing indicator
@@ -150,30 +171,40 @@ export const chatSocket = new ChatSocketService();
 
 // REST API calls
 export const chatAPI = {
+  getUserId: async (): Promise<number> => {
+    const storedUser = await AsyncStorage.getItem('user');
+    const user = storedUser ? JSON.parse(storedUser) : null;
+    return Number(user?.id || user?.user_id || 0);
+  },
+
   // Get conversations
   getConversations: async (): Promise<ChatConversation[]> => {
-    const response = await fetch(`${API_URL}/chats`);
+    const userId = await chatAPI.getUserId();
+    const response = await fetch(`${API_URL}/chats?user_id=${userId}`);
     const data = await response.json();
     return data.conversations;
   },
 
   // Get messages for a chat
   getMessages: async (chatId: string, page: number = 1): Promise<ChatMessage[]> => {
-    const response = await fetch(`${API_URL}/chats/${chatId}/messages?page=${page}`);
+    const userId = await chatAPI.getUserId();
+    const response = await fetch(`${API_URL}/chats/${chatId}/messages?user_id=${userId}&page=${page}`);
     const data = await response.json();
     return data.messages;
   },
 
   // Search messages
   searchMessages: async (query: string): Promise<ChatMessage[]> => {
-    const response = await fetch(`${API_URL}/chats/search?q=${encodeURIComponent(query)}`);
+    const userId = await chatAPI.getUserId();
+    const response = await fetch(`${API_URL}/chats/search?q=${encodeURIComponent(query)}&user_id=${userId}`);
     const data = await response.json();
     return data.messages;
   },
 
   // Get starred messages
   getStarredMessages: async (): Promise<ChatMessage[]> => {
-    const response = await fetch(`${API_URL}/chats/starred`);
+    const userId = await chatAPI.getUserId();
+    const response = await fetch(`${API_URL}/chats/starred?user_id=${userId}`);
     const data = await response.json();
     return data.messages;
   },
@@ -181,8 +212,10 @@ export const chatAPI = {
   // Create group
   createGroup: async (name: string, participantIds: number[], avatar?: string): Promise<ChatConversation> => {
     const formData = new FormData();
+    const userId = await chatAPI.getUserId();
     formData.append('name', name);
     formData.append('participants', JSON.stringify(participantIds));
+    formData.append('created_by', userId.toString());
     if (avatar) formData.append('avatar', avatar);
     
     const response = await fetch(`${API_URL}/chats/group`, {
@@ -197,12 +230,12 @@ export const chatAPI = {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('type', type);
-    
+
     const response = await fetch(`${API_URL}/chats/upload`, {
       method: 'POST',
       body: formData,
-      headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.json();
   },
+
 };

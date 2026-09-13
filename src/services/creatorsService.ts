@@ -76,7 +76,6 @@ export const uploadVideo = async (
     const response = await fetch(`${API_URL}/upload`, {
       method: 'POST',
       body: formData,
-      headers: { 'Content-Type': 'multipart/form-data' },
     });
     return await response.json();
   } catch {

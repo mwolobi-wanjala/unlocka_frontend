@@ -48,9 +48,6 @@ export const sendGoogleTokenToBackend = async (
     const response = await fetch(`${BASE_URL}/auth/google`, {
       method: 'POST',
       body: formData,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
     });
 
     return await response.json();
