@@ -1,132 +1,442 @@
 
-// Add this import at top of SendViewOnce.tsx
+// components/viewOnce/SendViewOnce.tsx - Send View Once (Photo/Video only)
+import React, { useState, useEffect } from 'react';
+import {
+  View, Text, StyleSheet, TextInput, TouchableOpacity,
+  FlatList, Image, Alert, Dimensions, ScrollView,
+  ActivityIndicator,
+} from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { COLORS, FONTS, SPACING, SHADOWS } from '../../constants/theme';
+import { VIEW_ONCE_MIN_AMOUNT, VIEW_ONCE_MAX_AMOUNT } from '../../types/viewOnce';
+import { createViewOnce } from '../../services/viewOnceService';
 import CameraRecorder from './CameraRecorder';
+import Button from '../Button';
 
-// Add these state variables inside SendViewOnce component
-const [showCamera, setShowCamera] = useState(false);
-const [cameraMode, setCameraMode] = useState<'photo' | 'video'>('photo');
+const { height } = Dimensions.get('window');
 
-// Update the type selector to include Camera option
-// Replace the existing typeSelector section with:
+interface Contact {
+  id: number;
+  name: string;
+  phone: string;
+  avatar?: string;
+  hasMutualContact: boolean;
+  isRegistered: boolean;
+}
 
-{/* Content type selector with Camera */}
-<View style={styles.typeSelector}>
-  <TouchableOpacity
-    style={[styles.typeBtn, contentType === 'text' && styles.activeType]}
-    onPress={() => setContentType('text')}
-  >
-    <Text style={styles.typeIcon}>💬</Text>
-    <Text style={styles.typeLabel}>Text</Text>
-  </TouchableOpacity>
-  <TouchableOpacity
-    style={[styles.typeBtn, contentType === 'image' && !showCamera && styles.activeType]}
-    onPress={() => {
-      setContentType('image');
-      setCameraMode('photo');
-      setShowCamera(true);
-    }}
-  >
-    <Text style={styles.typeIcon}>📷</Text>
-    <Text style={styles.typeLabel}>Camera</Text>
-  </TouchableOpacity>
-  <TouchableOpacity
-    style={[styles.typeBtn, contentType === 'video' && !showCamera && styles.activeType]}
-    onPress={() => {
-      setContentType('video');
-      setCameraMode('video');
-      setShowCamera(true);
-    }}
-  >
-    <Text style={styles.typeIcon}>🎥</Text>
-    <Text style={styles.typeLabel}>Video</Text>
-  </TouchableOpacity>
-  <TouchableOpacity
-    style={[styles.typeBtn, mediaUri && !showCamera && contentType !== 'text' && styles.activeType]}
-    onPress={() => pickMedia('image')}
-  >
-    <Text style={styles.typeIcon}>🖼️</Text>
-    <Text style={styles.typeLabel}>Gallery</Text>
-  </TouchableOpacity>
-</View>
+interface SendViewOnceProps {
+  senderId: number;
+  senderName: string;
+  onClose: () => void;
+  onSent: () => void;
+}
 
-// Show camera or media preview
-{showCamera ? (
-  <View style={styles.cameraContainer}>
-    <CameraRecorder
-      mode={cameraMode}
-      onCapture={(uri, type) => {
-        if (uri) {
-          setMediaUri(uri);
-          setContentType(type === 'video' ? 'video' : 'image');
-        }
-        setShowCamera(false);
-      }}
-      onClose={() => setShowCamera(false)}
-    />
-  </View>
-) : mediaUri ? (
-  <View style={styles.mediaPreview}>
-    {contentType === 'video' ? (
-      <View style={styles.videoPreview}>
-        <Image source={{ uri: mediaUri }} style={styles.mediaImage} />
-        <View style={styles.playOverlay}>
-          <Text style={styles.playIcon}>▶️</Text>
-          <Text style={styles.videoLabel}>Video captured</Text>
-        </View>
+const SendViewOnce: React.FC<SendViewOnceProps> = ({
+  senderId,
+  senderName,
+  onClose,
+  onSent,
+}) => {
+  const [step, setStep] = useState<'select_contact' | 'create_content' | 'set_amount' | 'confirm' | 'sending'>('select_contact');
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [contentType, setContentType] = useState<'image' | 'video'>('image');
+  const [mediaUri, setMediaUri] = useState<string | null>(null);
+  const [caption, setCaption] = useState('');
+  const [amount, setAmount] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const [cameraMode, setCameraMode] = useState<'photo' | 'video'>('photo');
+
+  useEffect(() => {
+    loadContacts();
+  }, []);
+
+  const loadContacts = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/v1/contacts/mutual?sender_id=${senderId}`
+      );
+      const data = await response.json();
+      if (data.success) setContacts(data.contacts);
+      else setContacts(getDemoContacts());
+    } catch {
+      setContacts(getDemoContacts());
+    }
+    setLoading(false);
+  };
+
+  const getDemoContacts = (): Contact[] => [
+    { id: 2, name: 'Mwolobi Junior', phone: '0712345678', hasMutualContact: true, isRegistered: true },
+    { id: 3, name: 'Jane Doe', phone: '0798765432', hasMutualContact: true, isRegistered: true },
+    { id: 4, name: 'John Smith', phone: '0723456789', hasMutualContact: true, isRegistered: true },
+    { id: 5, name: 'Alice Wanjiku', phone: '0734567890', hasMutualContact: false, isRegistered: true },
+    { id: 6, name: 'Bob Otieno', phone: '0745678901', hasMutualContact: true, isRegistered: false },
+  ];
+
+  const filteredContacts = contacts.filter(c => {
+    const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.phone.includes(searchQuery);
+    return matchesSearch && c.hasMutualContact && c.isRegistered;
+  });
+
+  const pickMedia = async (type: 'image' | 'video') => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: type === 'video' ? 'videos' : 'images',
+      allowsEditing: true,
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setMediaUri(result.assets[0].uri);
+      setContentType(type);
+    }
+  };
+
+  const validateAmount = (value: string): boolean => {
+    const num = parseFloat(value);
+    return !isNaN(num) && num >= VIEW_ONCE_MIN_AMOUNT && num <= VIEW_ONCE_MAX_AMOUNT;
+  };
+
+  const handleSend = async () => {
+    if (!selectedContact) { Alert.alert('Error', 'Select a contact first'); return; }
+    if (!mediaUri) { Alert.alert('Error', 'Capture or select media to send'); return; }
+
+    const amountNum = parseFloat(amount);
+    if (!validateAmount(amount)) {
+      Alert.alert('Error', `Amount must be between KSH ${VIEW_ONCE_MIN_AMOUNT} and KSH ${VIEW_ONCE_MAX_AMOUNT}`);
+      return;
+    }
+
+    setStep('sending');
+    setLoading(true);
+
+    try {
+      const result = await createViewOnce(
+        senderId, senderName, selectedContact.id, selectedContact.phone,
+        contentType, mediaUri, amountNum, caption || undefined
+      );
+
+      if (result.success) {
+        Alert.alert(
+          '✅ Sent!',
+          `View once sent to ${selectedContact.name}\nThey'll pay KSH ${amountNum} to view.\nYou'll earn KSH ${(amountNum * 0.9).toFixed(2)}`,
+          [{ text: 'OK', onPress: () => { onSent(); onClose(); } }]
+        );
+      } else {
+        Alert.alert('Error', result.message || 'Failed to send');
+        setStep('confirm');
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to send view once');
+      setStep('confirm');
+    }
+    setLoading(false);
+  };
+
+  const renderContact = ({ item }: { item: Contact }) => (
+    <TouchableOpacity
+      style={[styles.contactItem, selectedContact?.id === item.id && styles.selectedContact]}
+      onPress={() => { setSelectedContact(item); setStep('create_content'); }}
+    >
+      <View style={styles.contactAvatar}>
+        <Text style={styles.contactAvatarText}>{item.name.charAt(0).toUpperCase()}</Text>
+        {item.hasMutualContact && <View style={styles.mutualBadge} />}
       </View>
-    ) : (
-      <Image source={{ uri: mediaUri }} style={styles.mediaImage} />
-    )}
-    <TouchableOpacity
-      style={styles.removeMedia}
-      onPress={() => setMediaUri(null)}
-    >
-      <Text style={styles.removeMediaText}>✕</Text>
+      <View style={styles.contactInfo}>
+        <Text style={styles.contactName}>{item.name}</Text>
+        <Text style={styles.contactPhone}>{item.phone}</Text>
+        {item.hasMutualContact && <Text style={styles.mutualText}>📱 Has your number</Text>}
+      </View>
+      <Text style={styles.arrow}>→</Text>
     </TouchableOpacity>
-    <TouchableOpacity
-      style={styles.retakeBtn}
-      onPress={() => {
-        setShowCamera(true);
-        setCameraMode(contentType === 'video' ? 'video' : 'photo');
-      }}
-    >
-      <Text style={styles.retakeText}>📷 Retake</Text>
-    </TouchableOpacity>
-  </View>
-) : (
-  <TouchableOpacity
-    style={styles.pickMediaBtn}
-    onPress={() => {
-      setCameraMode(contentType === 'video' ? 'video' : 'photo');
-      setShowCamera(true);
-    }}
-  >
-    <Text style={styles.pickMediaIcon}>📸</Text>
-    <Text style={styles.pickMediaText}>
-      Tap to use camera for {contentType === 'video' ? 'video' : 'photo'}
-    </Text>
-  </TouchableOpacity>
-)}
+  );
 
-// Add these styles
-cameraContainer: { height: height * 0.5, borderRadius: 12, overflow: 'hidden', marginBottom: SPACING.md },
-videoPreview: { position: 'relative' },
-playOverlay: {
-  position: 'absolute',
-  top: 0, left: 0, right: 0, bottom: 0,
-  backgroundColor: 'rgba(0,0,0,0.3)',
-  justifyContent: 'center',
-  alignItems: 'center',
-},
-playIcon: { fontSize: 40, color: '#FFF' },
-videoLabel: { color: '#FFF', fontSize: FONTS.sizes.sm, marginTop: SPACING.sm },
-retakeBtn: {
-  position: 'absolute',
-  bottom: 8,
-  left: 8,
-  backgroundColor: 'rgba(0,0,0,0.6)',
-  paddingHorizontal: SPACING.md,
-  paddingVertical: SPACING.xs,
-  borderRadius: 15,
-},
-retakeText: { color: '#FFF', fontSize: FONTS.sizes.xs },
+  if (step === 'select_contact') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onClose}><Text style={styles.closeBtn}>✕</Text></TouchableOpacity>
+          <Text style={styles.headerTitle}>Send View Once</Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        <View style={styles.infoBox}>
+          <Text style={styles.infoIcon}>💡</Text>
+          <Text style={styles.infoText}>Send photo/video that disappears after viewing. Recipient pays to unlock.</Text>
+        </View>
+
+        <View style={styles.searchContainer}>
+          <Text style={styles.searchIcon}>🔍</Text>
+          <TextInput style={styles.searchInput} value={searchQuery} onChangeText={setSearchQuery} placeholder="Search contacts..." placeholderTextColor="#999" />
+        </View>
+
+        {loading ? (
+          <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={styles.loadingText}>Loading contacts...</Text></View>
+        ) : (
+          <FlatList
+            data={filteredContacts}
+            renderItem={renderContact}
+            keyExtractor={item => item.id.toString()}
+            contentContainerStyle={styles.contactsList}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyIcon}>📭</Text>
+                <Text style={styles.emptyText}>No contacts available</Text>
+                <Text style={styles.emptySubtext}>Both users must have each other's numbers</Text>
+              </View>
+            }
+          />
+        )}
+      </View>
+    );
+  }
+
+  if (step === 'create_content') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => setStep('select_contact')}><Text style={styles.backBtn}>←</Text></TouchableOpacity>
+          <Text style={styles.headerTitle}>Capture Media</Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        <ScrollView contentContainerStyle={styles.contentContainer}>
+          <View style={styles.selectedContactBar}>
+            <Text style={styles.toLabel}>To:</Text>
+            <View style={styles.toAvatar}><Text style={styles.toAvatarText}>{selectedContact?.name.charAt(0)}</Text></View>
+            <Text style={styles.toName}>{selectedContact?.name}</Text>
+          </View>
+
+          <View style={styles.typeSelector}>
+            <TouchableOpacity
+              style={[styles.typeBtn, contentType === 'image' && !showCamera && styles.activeType]}
+              onPress={() => { setContentType('image'); setCameraMode('photo'); setShowCamera(true); }}
+            >
+              <Text style={styles.typeIcon}>📷</Text>
+              <Text style={styles.typeLabel}>Photo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.typeBtn, contentType === 'video' && !showCamera && styles.activeType]}
+              onPress={() => { setContentType('video'); setCameraMode('video'); setShowCamera(true); }}
+            >
+              <Text style={styles.typeIcon}>🎥</Text>
+              <Text style={styles.typeLabel}>Video</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.typeBtn, mediaUri && !showCamera && styles.activeType]}
+              onPress={() => pickMedia('image')}
+            >
+              <Text style={styles.typeIcon}>🖼️</Text>
+              <Text style={styles.typeLabel}>Gallery</Text>
+            </TouchableOpacity>
+          </View>
+
+          {showCamera ? (
+            <View style={styles.cameraContainer}>
+              <CameraRecorder
+                mode={cameraMode}
+                onCapture={(uri, type) => {
+                  if (uri) { setMediaUri(uri); setContentType(type === 'video' ? 'video' : 'image'); }
+                  setShowCamera(false);
+                }}
+                onClose={() => setShowCamera(false)}
+              />
+            </View>
+          ) : mediaUri ? (
+            <View style={styles.mediaPreview}>
+              {contentType === 'video' ? (
+                <View style={styles.videoPreview}>
+                  <Image source={{ uri: mediaUri }} style={styles.mediaImage} />
+                  <View style={styles.playOverlay}><Text style={styles.playIcon}>▶️</Text></View>
+                </View>
+              ) : (
+                <Image source={{ uri: mediaUri }} style={styles.mediaImage} />
+              )}
+              <TouchableOpacity style={styles.removeMedia} onPress={() => setMediaUri(null)}>
+                <Text style={styles.removeMediaText}>✕</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.retakeBtn} onPress={() => { setShowCamera(true); setCameraMode(contentType === 'video' ? 'video' : 'photo'); }}>
+                <Text style={styles.retakeText}>📷 Retake</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity style={styles.pickMediaBtn} onPress={() => { setCameraMode(contentType === 'video' ? 'video' : 'photo'); setShowCamera(true); }}>
+              <Text style={styles.pickMediaIcon}>📸</Text>
+              <Text style={styles.pickMediaText}>Tap to use camera</Text>
+            </TouchableOpacity>
+          )}
+
+          <TextInput style={styles.captionInput} value={caption} onChangeText={setCaption} placeholder="Add a caption (optional)..." placeholderTextColor="#999" maxLength={200} />
+
+          <Button title="Next: Set Amount" icon="💰" onPress={() => setStep('set_amount')} variant="primary" disabled={!mediaUri} />
+        </ScrollView>
+      </View>
+    );
+  }
+
+  if (step === 'set_amount') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => setStep('create_content')}><Text style={styles.backBtn}>←</Text></TouchableOpacity>
+          <Text style={styles.headerTitle}>Set Amount</Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        <ScrollView contentContainerStyle={styles.contentContainer}>
+          <View style={styles.previewCard}>
+            <Text style={styles.previewLabel}>Sending to: {selectedContact?.name}</Text>
+            <Text style={styles.previewContent}>{contentType === 'video' ? '🎥 Video' : '📷 Photo'}{caption ? ` - "${caption}"` : ''}</Text>
+          </View>
+
+          <View style={styles.amountSection}>
+            <Text style={styles.amountTitle}>How much to charge?</Text>
+            <Text style={styles.amountSubtitle}>Recipient pays to view. You earn 90%.</Text>
+            <View style={styles.amountInputContainer}>
+              <Text style={styles.currencyLabel}>KSH</Text>
+              <TextInput style={styles.amountInput} value={amount} onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))} placeholder="0" placeholderTextColor="#999" keyboardType="number-pad" maxLength={3} />
+            </View>
+            <View style={styles.quickAmounts}>
+              {[20, 50, 100, 200, 300, 500].map((val) => (
+                <TouchableOpacity key={val} style={[styles.quickAmountBtn, amount === val.toString() && styles.quickAmountActive]} onPress={() => setAmount(val.toString())}>
+                  <Text style={[styles.quickAmountText, amount === val.toString() && styles.quickAmountTextActive]}>{val}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {amount !== '' && validateAmount(amount) && (
+              <View style={styles.earningsPreview}>
+                <Text style={styles.earningsText}>💰 You'll earn: KSH {(parseFloat(amount) * 0.9).toFixed(2)}</Text>
+                <Text style={styles.platformText}>🏢 Platform fee: KSH {(parseFloat(amount) * 0.1).toFixed(2)}</Text>
+              </View>
+            )}
+          </View>
+
+          <Button title="Review & Send" icon="📤" onPress={() => setStep('confirm')} variant="success" disabled={!validateAmount(amount)} />
+        </ScrollView>
+      </View>
+    );
+  }
+
+  if (step === 'confirm' || step === 'sending') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => setStep('set_amount')}><Text style={styles.backBtn}>←</Text></TouchableOpacity>
+          <Text style={styles.headerTitle}>Confirm</Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        <ScrollView contentContainerStyle={styles.contentContainer}>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryTitle}>📋 Summary</Text>
+            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>To:</Text><Text style={styles.summaryValue}>{selectedContact?.name}</Text></View>
+            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Phone:</Text><Text style={styles.summaryValue}>{selectedContact?.phone}</Text></View>
+            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Type:</Text><Text style={styles.summaryValue}>{contentType === 'video' ? '🎥 Video' : '📷 Photo'}</Text></View>
+            {caption && <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Caption:</Text><Text style={styles.summaryValue}>"{caption}"</Text></View>}
+            <View style={styles.divider} />
+            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Amount:</Text><Text style={styles.amountValue}>KSH {amount}</Text></View>
+            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>You earn (90%):</Text><Text style={styles.earnValue}>KSH {(parseFloat(amount) * 0.9).toFixed(2)}</Text></View>
+            <View style={styles.summaryRow}><Text style={styles.summaryLabel}>Platform (10%):</Text><Text style={styles.platformValue}>KSH {(parseFloat(amount) * 0.1).toFixed(2)}</Text></View>
+          </View>
+
+          <View style={styles.encryptionNotice}>
+            <Text style={styles.encryptionIcon}>🔐</Text>
+            <Text style={styles.encryptionText}>End-to-End Encrypted • Only {selectedContact?.name} can view</Text>
+          </View>
+
+          <Button title={step === 'sending' ? 'Sending...' : `Send View Once • KSH ${amount}`} icon="📤" onPress={handleSend} loading={step === 'sending'} variant="primary" />
+        </ScrollView>
+      </View>
+    );
+  }
+
+  return null;
+};
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#FFF' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 50, paddingHorizontal: SPACING.md, paddingBottom: SPACING.md, borderBottomWidth: 1, borderBottomColor: '#E0E0E0' },
+  closeBtn: { fontSize: 22, color: COLORS.dark },
+  backBtn: { fontSize: 22, color: COLORS.primary },
+  headerTitle: { fontSize: FONTS.sizes.lg, fontWeight: 'bold', color: COLORS.dark },
+  infoBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E3F2FD', padding: SPACING.sm, paddingHorizontal: SPACING.md, gap: SPACING.sm },
+  infoIcon: { fontSize: 14 },
+  infoText: { flex: 1, fontSize: FONTS.sizes.xs, color: '#1565C0' },
+  searchContainer: { flexDirection: 'row', alignItems: 'center', margin: SPACING.md, backgroundColor: '#F5F5F5', borderRadius: 12, paddingHorizontal: SPACING.md },
+  searchIcon: { fontSize: 16, marginRight: SPACING.sm },
+  searchInput: { flex: 1, padding: SPACING.md, fontSize: FONTS.sizes.md },
+  contactsList: { padding: SPACING.md },
+  contactItem: { flexDirection: 'row', alignItems: 'center', padding: SPACING.md, borderRadius: 12, marginBottom: SPACING.sm, backgroundColor: '#FAFAFA' },
+  selectedContact: { backgroundColor: '#E8F5E9', borderWidth: 1, borderColor: '#4CAF50' },
+  contactAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', marginRight: SPACING.md },
+  contactAvatarText: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
+  mutualBadge: { position: 'absolute', bottom: 0, right: 0, width: 14, height: 14, borderRadius: 7, backgroundColor: '#4CAF50', borderWidth: 2, borderColor: '#FFF' },
+  contactInfo: { flex: 1 },
+  contactName: { fontSize: FONTS.sizes.md, fontWeight: '600', color: COLORS.dark },
+  contactPhone: { fontSize: FONTS.sizes.xs, color: COLORS.gray },
+  mutualText: { fontSize: 10, color: '#4CAF50', marginTop: 2 },
+  arrow: { fontSize: 20, color: COLORS.gray },
+  contentContainer: { padding: SPACING.md, paddingBottom: SPACING.xxl },
+  selectedContactBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F5F5', padding: SPACING.sm, borderRadius: 12, marginBottom: SPACING.md, gap: SPACING.sm },
+  toLabel: { fontSize: FONTS.sizes.sm, color: COLORS.gray },
+  toAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
+  toAvatarText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
+  toName: { fontSize: FONTS.sizes.sm, fontWeight: '600' },
+  typeSelector: { flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.md },
+  typeBtn: { flex: 1, alignItems: 'center', padding: SPACING.md, borderRadius: 12, backgroundColor: '#F5F5F5', borderWidth: 2, borderColor: 'transparent' },
+  activeType: { borderColor: COLORS.primary, backgroundColor: '#F0EEFF' },
+  typeIcon: { fontSize: 28, marginBottom: 4 },
+  typeLabel: { fontSize: FONTS.sizes.xs, color: COLORS.dark },
+  cameraContainer: { height: height * 0.5, borderRadius: 12, overflow: 'hidden', marginBottom: SPACING.md },
+  mediaPreview: { position: 'relative', marginBottom: SPACING.md },
+  mediaImage: { width: '100%', height: 200, borderRadius: 12 },
+  videoPreview: { position: 'relative' },
+  playOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
+  playIcon: { fontSize: 40, color: '#FFF' },
+  removeMedia: { position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
+  removeMediaText: { color: '#FFF', fontSize: 14 },
+  retakeBtn: { position: 'absolute', bottom: 8, left: 8, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs, borderRadius: 15 },
+  retakeText: { color: '#FFF', fontSize: FONTS.sizes.xs },
+  pickMediaBtn: { alignItems: 'center', padding: SPACING.xl, backgroundColor: '#F5F5F5', borderRadius: 12, marginBottom: SPACING.md, borderWidth: 2, borderColor: '#E0E0E0', borderStyle: 'dashed' },
+  pickMediaIcon: { fontSize: 40, marginBottom: SPACING.sm },
+  pickMediaText: { fontSize: FONTS.sizes.sm, color: COLORS.gray },
+  captionInput: { backgroundColor: '#F5F5F5', borderRadius: 12, padding: SPACING.md, fontSize: FONTS.sizes.sm, marginBottom: SPACING.md },
+  amountSection: { marginBottom: SPACING.lg },
+  amountTitle: { fontSize: FONTS.sizes.lg, fontWeight: 'bold', color: COLORS.dark, marginBottom: 4 },
+  amountSubtitle: { fontSize: FONTS.sizes.sm, color: COLORS.gray, marginBottom: SPACING.lg },
+  amountInputContainer: { flexDirection: 'row', alignItems: 'center', borderWidth: 2, borderColor: COLORS.primary, borderRadius: 12, marginBottom: SPACING.md },
+  currencyLabel: { fontSize: FONTS.sizes.lg, fontWeight: 'bold', color: COLORS.white, backgroundColor: COLORS.primary, padding: SPACING.md, paddingHorizontal: SPACING.lg, borderTopLeftRadius: 10, borderBottomLeftRadius: 10 },
+  amountInput: { flex: 1, fontSize: FONTS.sizes.xxxl, fontWeight: 'bold', textAlign: 'center', padding: SPACING.md, color: COLORS.dark },
+  quickAmounts: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginBottom: SPACING.md },
+  quickAmountBtn: { paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, borderRadius: 20, backgroundColor: '#F5F5F5', borderWidth: 1, borderColor: '#E0E0E0' },
+  quickAmountActive: { backgroundColor: '#E8F5E9', borderColor: '#4CAF50' },
+  quickAmountText: { fontSize: FONTS.sizes.sm, color: COLORS.dark },
+  quickAmountTextActive: { color: '#4CAF50', fontWeight: 'bold' },
+  earningsPreview: { backgroundColor: '#F0EEFF', padding: SPACING.md, borderRadius: 10, marginTop: SPACING.sm },
+  earningsText: { fontSize: FONTS.sizes.sm, color: COLORS.primary, fontWeight: '600', marginBottom: 4 },
+  platformText: { fontSize: FONTS.sizes.xs, color: COLORS.gray },
+  previewCard: { backgroundColor: '#F5F5F5', padding: SPACING.md, borderRadius: 12, marginBottom: SPACING.lg },
+  previewLabel: { fontSize: FONTS.sizes.sm, color: COLORS.gray, marginBottom: SPACING.sm },
+  previewContent: { fontSize: FONTS.sizes.md, color: COLORS.dark },
+  summaryCard: { backgroundColor: '#FFF', borderRadius: 16, padding: SPACING.lg, marginBottom: SPACING.md, ...SHADOWS.medium },
+  summaryTitle: { fontSize: FONTS.sizes.lg, fontWeight: 'bold', color: COLORS.dark, marginBottom: SPACING.md },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: SPACING.sm },
+  summaryLabel: { fontSize: FONTS.sizes.sm, color: COLORS.gray },
+  summaryValue: { fontSize: FONTS.sizes.sm, color: COLORS.dark, fontWeight: '500', flex: 1, textAlign: 'right' },
+  divider: { height: 1, backgroundColor: '#E0E0E0', marginVertical: SPACING.sm },
+  amountValue: { fontSize: FONTS.sizes.lg, fontWeight: 'bold', color: '#E65100' },
+  earnValue: { fontSize: FONTS.sizes.md, fontWeight: 'bold', color: '#4CAF50' },
+  platformValue: { fontSize: FONTS.sizes.md, color: COLORS.gray },
+  encryptionNotice: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E8F5E9', padding: SPACING.md, borderRadius: 10, marginBottom: SPACING.md, gap: SPACING.sm },
+  encryptionIcon: { fontSize: 16 },
+  encryptionText: { flex: 1, fontSize: FONTS.sizes.xs, color: '#2E7D32' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { color: COLORS.gray, marginTop: SPACING.md },
+  emptyContainer: { alignItems: 'center', padding: SPACING.xxl },
+  emptyIcon: { fontSize: 60, marginBottom: SPACING.md },
+  emptyText: { fontSize: FONTS.sizes.lg, fontWeight: 'bold', color: COLORS.dark },
+  emptySubtext: { fontSize: FONTS.sizes.sm, color: COLORS.gray, marginTop: SPACING.xs, textAlign: 'center' },
+});
+
+export default SendViewOnce;

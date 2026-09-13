@@ -15,7 +15,7 @@ interface HelpScreenProps {
 }
 
 // Contact Information
-const CONTACT_INFO = {
+const CONTACT_INFO: Record<string, { number?: string; address?: string; label: string; icon: string; color: string }> = {
   whatsapp: { number: '+254784095825', label: 'WhatsApp', icon: '💬', color: '#25D366' },
   email: { address: 'mwolobijavanson@gmail.com', label: 'Email', icon: '📧', color: '#EA4335' },
   call1: { number: '+254784095825', label: 'Call (Line 1)', icon: '📞', color: '#2196F3' },
@@ -100,11 +100,31 @@ const HelpScreen: React.FC<HelpScreenProps> = ({ onClose }) => {
 
   const handleContact = (type: string) => {
     switch (type) {
-      case 'whatsapp': Linking.openURL(`https://wa.me/${CONTACT_INFO.whatsapp.number.replace('+', '')}`); break;
-      case 'email': Linking.openURL(`mailto:${CONTACT_INFO.email.address}`); break;
-      case 'call1': Linking.openURL(`tel:${CONTACT_INFO.call1.number}`); break;
-      case 'call2': Linking.openURL(`tel:${CONTACT_INFO.call2.number}`); break;
-      case 'telegram': Linking.openURL(`https://t.me/${CONTACT_INFO.telegram.number.replace('+', '')}`); break;
+      case 'whatsapp': {
+        const number = CONTACT_INFO.whatsapp.number ?? '';
+        if (number) Linking.openURL(`https://wa.me/${number.replace('+', '')}`);
+        break;
+      }
+      case 'email': {
+        const email = CONTACT_INFO.email.address ?? '';
+        if (email) Linking.openURL(`mailto:${email}`);
+        break;
+      }
+      case 'call1': {
+        const number = CONTACT_INFO.call1.number ?? '';
+        if (number) Linking.openURL(`tel:${number}`);
+        break;
+      }
+      case 'call2': {
+        const number = CONTACT_INFO.call2.number ?? '';
+        if (number) Linking.openURL(`tel:${number}`);
+        break;
+      }
+      case 'telegram': {
+        const number = CONTACT_INFO.telegram.number ?? '';
+        if (number) Linking.openURL(`https://t.me/${number.replace('+', '')}`);
+        break;
+      }
     }
   };
 
@@ -231,22 +251,25 @@ const HelpScreen: React.FC<HelpScreenProps> = ({ onClose }) => {
               <Text style={styles.contactSubtitle}>We're here to help! Reach out through any channel.</Text>
             </View>
 
-            {Object.entries(CONTACT_INFO).map(([key, info]) => (
-              <TouchableOpacity key={key} style={[styles.contactCard, { borderLeftColor: info.color }]} onPress={() => handleContact(key)}>
-                <Text style={styles.contactIcon}>{info.icon}</Text>
-                <View style={styles.contactInfo}>
-                  <Text style={styles.contactLabel}>{info.label}</Text>
-                  <Text style={styles.contactValue}>{key.includes('call') ? info.number : key === 'email' ? info.address : info.number}</Text>
-                  <Text style={styles.contactHint}>
-                    {key === 'whatsapp' ? 'Fast response • Chat support' :
-                     key === 'email' ? '24-48 hour response time' :
-                     key === 'telegram' ? 'Fast response • Chat support' :
-                     'Available 8AM - 8PM EAT'}
-                  </Text>
-                </View>
-                <Text style={styles.contactArrow}>→</Text>
-              </TouchableOpacity>
-            ))}
+            {Object.entries(CONTACT_INFO).map(([key, info]) => {
+              const contactValue = info.number ?? info.address ?? '';
+              return (
+                <TouchableOpacity key={key} style={[styles.contactCard, { borderLeftColor: info.color }]} onPress={() => handleContact(key)}>
+                  <Text style={styles.contactIcon}>{info.icon}</Text>
+                  <View style={styles.contactInfo}>
+                    <Text style={styles.contactLabel}>{info.label}</Text>
+                    <Text style={styles.contactValue}>{contactValue}</Text>
+                    <Text style={styles.contactHint}>
+                      {key === 'whatsapp' ? 'Fast response • Chat support' :
+                       key === 'email' ? '24-48 hour response time' :
+                       key === 'telegram' ? 'Fast response • Chat support' :
+                       'Available 8AM - 8PM EAT'}
+                    </Text>
+                  </View>
+                  <Text style={styles.contactArrow}>→</Text>
+                </TouchableOpacity>
+              );
+            })}
 
             {/* Response Time Info */}
             <View style={styles.infoCard}>

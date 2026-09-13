@@ -8,7 +8,7 @@ import {
 import { Video, ResizeMode } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, FONTS, SPACING, SHADOWS } from '../constants/theme';
-import { CreatorVideo, VIDEO_CATEGORIES } from '../types/creators';
+import { CreatorVideo, VideoComment, VIDEO_CATEGORIES } from '../types/creators';
 import {
   getVideoFeed, toggleLikeVideo, toggleSaveVideo,
   getVideoComments, addComment, likeComment,
@@ -51,7 +51,7 @@ const CreatorsScreen: React.FC<CreatorsScreenProps> = ({ userId, userName, onNav
   const [showShare, setShowShare] = useState(false);
   
   // Video refs
-  const videoRefs = useRef<{ [key: string]: Video | null }>({});
+  const videoRefs = useRef<Record<string, Video | null>>({});
 
   useEffect(() => { loadVideos(); }, [category]);
   useEffect(() => { checkSubscription(); }, []);
@@ -125,7 +125,8 @@ const CreatorsScreen: React.FC<CreatorsScreenProps> = ({ userId, userName, onNav
       : await addComment(activeVideo.id, userId, userName, commentText);
 
     if (comment) {
-      setComments(prev => [comment.comment || comment, ...prev]);
+      const responseComment = (comment as VideoComment & { comment?: VideoComment }).comment ?? comment;
+      setComments(prev => [responseComment, ...prev]);
       setCommentText('');
       setReplyingTo(null);
       setVideos(prev => prev.map(v =>
@@ -134,7 +135,7 @@ const CreatorsScreen: React.FC<CreatorsScreenProps> = ({ userId, userName, onNav
     }
   };
 
-  const handleShare = async (platform: string) => {
+  const handleShare = async (platform: 'copy' | 'whatsapp' | 'instagram' | 'twitter') => {
     const activeVideo = videos[activeIndex];
     if (!activeVideo) return;
 
@@ -147,6 +148,13 @@ const CreatorsScreen: React.FC<CreatorsScreenProps> = ({ userId, userName, onNav
     showToast('Shared! 📤');
   };
 
+  const shareOptions = [
+    { id: 'whatsapp' as const, name: 'WhatsApp', icon: '💬' },
+    { id: 'instagram' as const, name: 'Instagram', icon: '📷' },
+    { id: 'twitter' as const, name: 'Twitter', icon: '🐦' },
+    { id: 'copy' as const, name: 'Copy Link', icon: '🔗' },
+  ];
+
   const renderVideoItem = ({ item, index }: { item: CreatorVideo; index: number }) => {
     const isActive = index === activeIndex;
 
@@ -155,7 +163,7 @@ const CreatorsScreen: React.FC<CreatorsScreenProps> = ({ userId, userName, onNav
         {/* Video */}
         <TouchableOpacity activeOpacity={1} onPress={() => setActiveIndex(index)}>
           <Video
-            ref={(ref) => { videoRefs.current[item.id] = ref; }}
+            ref={(ref: any) => { videoRefs.current[item.id] = ref; }}
             source={{ uri: item.videoUrl }}
             style={styles.video}
             resizeMode={ResizeMode.COVER}
@@ -219,12 +227,11 @@ const CreatorsScreen: React.FC<CreatorsScreenProps> = ({ userId, userName, onNav
     );
   };
 
-  if (loading) {
-  if (checkingSub) {
+  if (loading || checkingSub) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingText}>Checking access...</Text>
+        <Text style={styles.loadingText}>{checkingSub ? 'Checking access...' : 'Loading videos...'}</Text>
       </View>
     );
   }
@@ -240,13 +247,6 @@ const CreatorsScreen: React.FC<CreatorsScreenProps> = ({ userId, userName, onNav
           onSubscribe={() => { setHasSubscription(true); loadVideos(); }}
           subscriptionStatus={subStatus}
         />
-      </View>
-    );
-  }
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingText}>Loading videos...</Text>
       </View>
     );
   }
@@ -284,16 +284,16 @@ const CreatorsScreen: React.FC<CreatorsScreenProps> = ({ userId, userName, onNav
       </View>
 
       {/* Video Feed */}
-      <FlatList
+      <FlatList<CreatorVideo>
         data={videos}
         renderItem={renderVideoItem}
-        keyExtractor={item => item.id}
+        keyExtractor={(item: CreatorVideo) => item.id}
         pagingEnabled
         showsVerticalScrollIndicator={false}
         snapToInterval={height - 110}
         snapToAlignment="start"
         decelerationRate="fast"
-        onMomentumScrollEnd={(e) => {
+        onMomentumScrollEnd={(e: any) => {
           const index = Math.round(e.nativeEvent.contentOffset.y / (height - 110));
           setActiveIndex(index);
         }}
@@ -318,10 +318,10 @@ const CreatorsScreen: React.FC<CreatorsScreenProps> = ({ userId, userName, onNav
               </TouchableOpacity>
             </View>
 
-            <FlatList
+            <FlatList<VideoComment>
               data={comments}
-              keyExtractor={item => item.id}
-              renderItem={({ item }) => (
+              keyExtractor={(item: VideoComment) => item.id}
+              renderItem={({ item }: { item: VideoComment }) => (
                 <View style={styles.commentItem}>
                   <View style={styles.commentAvatar}>
                     <Text style={styles.commentAvatarText}>{item.userName?.charAt(0)}</Text>
@@ -381,12 +381,7 @@ const CreatorsScreen: React.FC<CreatorsScreenProps> = ({ userId, userName, onNav
           <View style={styles.shareContainer}>
             <Text style={styles.shareTitle}>Share to</Text>
             <View style={styles.shareGrid}>
-              {[
-                { id: 'whatsapp', name: 'WhatsApp', icon: '💬' },
-                { id: 'instagram', name: 'Instagram', icon: '📷' },
-                { id: 'twitter', name: 'Twitter', icon: '🐦' },
-                { id: 'copy', name: 'Copy Link', icon: '🔗' },
-              ].map(option => (
+              {shareOptions.map(option => (
                 <TouchableOpacity key={option.id} style={styles.shareOption} onPress={() => handleShare(option.id)}>
                   <Text style={styles.shareIcon}>{option.icon}</Text>
                   <Text style={styles.shareOptionText}>{option.name}</Text>

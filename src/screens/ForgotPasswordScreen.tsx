@@ -32,7 +32,7 @@ const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({ onNavigate,
   
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
-  const codeInputRefs = useRef<TextInput[]>([]);
+  const codeInputRefs = useRef<Array<TextInput | null>>([]);
 
   useEffect(() => {
     if (timer > 0) {
@@ -106,7 +106,7 @@ const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({ onNavigate,
                 <Text style={styles.stepDesc}>Enter the 6-digit code sent to your phone.</Text>
                 <View style={styles.codeRow}>
                   {[0,1,2,3,4,5].map(i => (
-                    <TextInput key={i} ref={ref => codeInputRefs.current[i] = ref!} style={styles.codeBox} value={verificationCode[i]} onChangeText={t => handleCodeChange(t, i)} keyboardType="number-pad" maxLength={1} />
+                    <TextInput key={i} ref={ref => { codeInputRefs.current[i] = ref; }} style={styles.codeBox} value={verificationCode[i]} onChangeText={t => handleCodeChange(t, i)} keyboardType="number-pad" maxLength={1} />
                   ))}
                 </View>
                 {timer > 0 ? <Text style={styles.timer}>Resend in {timer}s</Text> : <TouchableOpacity onPress={handleSendCode}><Text style={styles.resend}>Resend Code</Text></TouchableOpacity>}
